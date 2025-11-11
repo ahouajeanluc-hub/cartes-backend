@@ -1,0 +1,43 @@
+{
+  "name": "gestioncartecocody-backend",
+  "version": "2.0.0",
+  "description": "Backend du projet GestionCarteCocody avec Express et MongoDB",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "build": "npm install",
+    "migrate": "node db/migrate-to-mongo.js"
+  },
+  "keywords": [
+    "carte-cocody",
+    "gestion-cartes",
+    "mongodb",
+    "express",
+    "react"
+  ],
+  "author": "VotreNom",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^5.9.2",
+    "mongoose": "^8.19.3",
+    "mssql": "^12.1.0",
+    "multer": "^2.0.2",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "type": "commonjs",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}
