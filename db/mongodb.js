@@ -1,8 +1,8 @@
 const { MongoClient } = require('mongodb');
 
-// Configuration URGENCE pour Render + Atlas
+// Configuration optimisée pour Render + Atlas
 const client = new MongoClient(process.env.MONGODB_URI, {
-    // ✅ Paramètres TLS URGENCE
+    // ✅ Paramètres TLS corrigés
     tls: true,
     tlsAllowInvalidCertificates: true, // ⚠️ Temporairement true
     tlsAllowInvalidHostnames: true,    // ⚠️ Temporairement true
@@ -83,9 +83,26 @@ function isDBConnected() {
     return isConnected;
 }
 
+// ✅ AJOUT : Export de mongoDB pour les sessions
+const mongoDB = { client };
+
+// Gestionnaire pour les arrêts propres
+process.on('SIGINT', async () => {
+    console.log('\n🛑 Arrêt du serveur...');
+    await closeDB();
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    console.log('\n🛑 Arrêt du serveur (SIGTERM)...');
+    await closeDB();
+    process.exit(0);
+});
+
 module.exports = {
     connectDB,
     getDB,
     closeDB,
-    isDBConnected
+    isDBConnected,
+    mongoDB // ✅ NOUVEL EXPORT
 };
