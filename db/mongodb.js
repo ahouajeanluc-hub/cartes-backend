@@ -1,10 +1,11 @@
 const { MongoClient } = require('mongodb');
 
-// Configuration optimisée pour Render + Atlas
+// Configuration URGENCE pour Render + Atlas
 const client = new MongoClient(process.env.MONGODB_URI, {
-    // ✅ Paramètres TLS corrigés
+    // ✅ Paramètres TLS URGENCE
     tls: true,
-    tlsAllowInvalidCertificates: false,
+    tlsAllowInvalidCertificates: true, // ⚠️ Temporairement true
+    tlsAllowInvalidHostnames: true,    // ⚠️ Temporairement true
     
     // ✅ Pool de connexions
     maxPoolSize: 10,
@@ -12,9 +13,9 @@ const client = new MongoClient(process.env.MONGODB_URI, {
     maxIdleTimeMS: 30000,
     
     // ✅ Timeouts
-    connectTimeoutMS: 10000,
+    connectTimeoutMS: 15000,
     socketTimeoutMS: 45000,
-    serverSelectionTimeoutMS: 10000,
+    serverSelectionTimeoutMS: 15000,
     
     // ✅ Retry policies
     retryWrites: true,
@@ -24,9 +25,6 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 let db;
 let isConnected = false;
 
-/**
- * Connexion à MongoDB Atlas
- */
 async function connectDB() {
     try {
         if (isConnected && db) {
@@ -35,6 +33,11 @@ async function connectDB() {
         
         console.log('🔄 Connexion à MongoDB Atlas...');
         console.log('📍 URI:', process.env.MONGODB_URI ? '✓ Définie' : '✗ Non définie');
+        console.log('🔧 TLS Config:', {
+            tls: true,
+            tlsAllowInvalidCertificates: true,
+            tlsAllowInvalidHostnames: true
+        });
         
         await client.connect();
         
@@ -44,25 +47,20 @@ async function connectDB() {
         db = client.db(process.env.DB_NAME || 'gestioncartes');
         isConnected = true;
         
-        console.log('✅ Connecté à MongoDB Atlas avec succès');
+        console.log('✅ CONNEXION RÉUSSIE À MONGODB ATLAS !');
         console.log('📁 Base de données:', db.databaseName);
         
         return db;
     } catch (error) {
         console.error('❌ Erreur de connexion à MongoDB Atlas:', error.message);
-        console.error('💡 Détails:', {
-            name: error.name,
-            code: error.code
-        });
+        console.error('💡 Code erreur:', error.code);
+        console.error('💡 Nom erreur:', error.name);
         
         isConnected = false;
         throw error;
     }
 }
 
-/**
- * Récupère l'instance de la base de données
- */
 function getDB() {
     if (!db || !isConnected) {
         throw new Error('❌ Database non connectée. Appelez connectDB() d\'abord.');
@@ -70,9 +68,6 @@ function getDB() {
     return db;
 }
 
-/**
- * Ferme la connexion
- */
 async function closeDB() {
     try {
         await client.close();
@@ -84,25 +79,9 @@ async function closeDB() {
     }
 }
 
-/**
- * Vérifie si la base de données est connectée
- */
 function isDBConnected() {
     return isConnected;
 }
-
-// Gestionnaire pour les arrêts propres
-process.on('SIGINT', async () => {
-    console.log('\n🛑 Arrêt du serveur...');
-    await closeDB();
-    process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-    console.log('\n🛑 Arrêt du serveur (SIGTERM)...');
-    await closeDB();
-    process.exit(0);
-});
 
 module.exports = {
     connectDB,
