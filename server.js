@@ -35,7 +35,7 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// ✅ CORS étendu
+// ✅ CORS ÉTENDU - VERSION CORRIGÉE
 app.use(cors({
     origin: function (origin, callback) {
         // En développement, autoriser toutes les origins
@@ -45,21 +45,28 @@ app.use(cors({
         
         // En production, autoriser les domains spécifiques
         const allowedOrigins = [
+            'https://elitegestioncartes.netlify.app', // ✅ TON DOMAINE NETLIFY AJOUTÉ
             'https://votre-frontend.onrender.com',
             'http://localhost:3000',
             'http://localhost:5173',
             process.env.FRONTEND_URL
         ].filter(Boolean);
         
-        if (!origin || allowedOrigins.includes(origin)) {
+        // Autoriser les requêtes sans origin (comme Postman, curl)
+        if (!origin) {
+            return callback(null, true);
+        }
+        
+        if (allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
+            console.log('🚫 CORS bloqué pour origin:', origin);
             callback(new Error('Not allowed by CORS'));
         }
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
 
 // ✅ Body parsers avec limites
