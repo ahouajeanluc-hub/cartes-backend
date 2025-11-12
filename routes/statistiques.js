@@ -1,56 +1,77 @@
 const express = require("express");
 const router = express.Router();
-const { verifyToken } = require("../middleware/auth"); // ✅ AJOUT AUTH
-const { getDB } = require('../db/mongodb'); // ✅ MONGODB
+const { verifyToken } = require("../middleware/auth");
+const { getDB } = require('../db/mongodb');
 
-// ✅ AJOUT: Middleware d'authentification
 router.use(verifyToken);
 
-// 🔹 STATISTIQUES GLOBALES OPTIMISÉES - MONGODB
+// 🔹 STATISTIQUES GLOBALES - VERSION CORRIGÉE
 router.get("/globales", async (req, res) => {
   try {
     console.log("📊 Calcul des statistiques globales MongoDB...");
     
     const db = getDB();
     
-    // Compter le total des cartes
-    const total = await db.collection('cartes').countDocuments();
-    
-    // Compter les cartes retirées (DELIVRANCE non vide)
-    const retires = await db.collection('cartes').countDocuments({
-      DELIVRANCE: { $ne: '', $exists: true, $ne: null }
-    });
+    const result = await db.collection('cartes').aggregate([
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          retires: {
+            $sum: {
+              $cond: [
+                { 
+                  $and: [
+                    { $ne: ["$DELIVRANCE", null] },
+                    { $ne: ["$DELIVRANCE", ""] }
+                  ]
+                },
+                1,
+                0
+              ]
+            }
+          }
+        }
+      }
+    ]).toArray();
 
+    const stats = result[0] || { total: 0, retires: 0 };
     const response = {
-      total: total,
-      retires: retires,
-      restants: total - retires
+      success: true,
+      total: stats.total,
+      retires: stats.retires,
+      restants: stats.total - stats.retires,
+      tauxRetrait: stats.total > 0 ? Math.round((stats.retires / stats.total) * 100) : 0
     };
 
-    console.log("✅ Statistiques globales MongoDB:", response);
+    console.log("✅ Statistiques globales:", response);
     res.json(response);
     
   } catch (error) {
-    console.error("❌ Erreur statistiques globales MongoDB:", error);
+    console.error("❌ Erreur statistiques globales:", error);
     res.status(500).json({ 
+      success: false,
       error: "Erreur lors du calcul des statistiques globales",
       details: error.message 
     });
   }
 });
 
-// 🔹 STATISTIQUES PAR SITE OPTIMISÉES - MONGODB
+// 🔹 STATISTIQUES PAR SITE - VERSION CORRIGÉE
 router.get("/sites", async (req, res) => {
   try {
-    console.log("🏢 Calcul des statistiques par site MongoDB...");
+    console.log("🏢 Calcul des statistiques par site...");
     
     const db = getDB();
     
-    // Agrégation MongoDB pour les stats par site
     const stats = await db.collection('cartes').aggregate([
       {
         $match: {
-          "SITE DE RETRAIT": { $ne: '', $exists: true, $ne: null }
+          "SITE DE RETRAIT": { 
+            $ne: null, 
+            $ne: "",
+            $exists: true 
+          }
         }
       },
       {
@@ -60,10 +81,12 @@ router.get("/sites", async (req, res) => {
           retires: {
             $sum: {
               $cond: [
-                { $and: [
-                  { $ne: ["$DELIVRANCE", ""] },
-                  { $ne: ["$DELIVRANCE", null] }
-                ]},
+                { 
+                  $and: [
+                    { $ne: ["$DELIVRANCE", null] },
+                    { $ne: ["$DELIVRANCE", ""] }
+                  ]
+                },
                 1,
                 0
               ]
@@ -76,45 +99,72 @@ router.get("/sites", async (req, res) => {
           site: "$_id",
           total: 1,
           retires: 1,
-          restants: { $subtract: ["$total", "$retires"] }
+          restants: { $subtract: ["$total", "$retires"] },
+          tauxRetrait: {
+            $cond: [
+              { $eq: ["$total", 0] },
+              0,
+              { $round: [{ $multiply: [{ $divide: ["$retires", "$total"] }, 100] }, 2] }
+            ]
+          }
         }
       },
       { $sort: { total: -1 } }
     ]).toArray();
 
-    console.log(`✅ ${stats.length} sites trouvés avec MongoDB`);
-    res.json(stats);
+    console.log(`✅ ${stats.length} sites trouvés`);
+    res.json({
+      success: true,
+      sites: stats
+    });
     
   } catch (error) {
-    console.error("❌ Erreur statistiques sites MongoDB:", error);
+    console.error("❌ Erreur statistiques sites:", error);
     res.status(500).json({ 
+      success: false,
       error: "Erreur lors du calcul des statistiques par site",
       details: error.message 
     });
   }
 });
 
-// 🔹 STATISTIQUES DÉTAILLÉES (tout en un) - MONGODB
+// 🔹 STATISTIQUES DÉTAILLÉES
 router.get("/detail", async (req, res) => {
   try {
     const db = getDB();
     
-    // Exécuter les deux agrégations en parallèle
     const [globalesResult, sitesResult] = await Promise.all([
-      // Statistiques globales
-      (async () => {
-        const total = await db.collection('cartes').countDocuments();
-        const retires = await db.collection('cartes').countDocuments({
-          DELIVRANCE: { $ne: '', $exists: true, $ne: null }
-        });
-        return { total, retires };
-      })(),
+      db.collection('cartes').aggregate([
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            retires: {
+              $sum: {
+                $cond: [
+                  { 
+                    $and: [
+                      { $ne: ["$DELIVRANCE", null] },
+                      { $ne: ["$DELIVRANCE", ""] }
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+            }
+          }
+        }
+      ]).toArray(),
       
-      // Statistiques par site
       db.collection('cartes').aggregate([
         {
           $match: {
-            "SITE DE RETRAIT": { $ne: '', $exists: true, $ne: null }
+            "SITE DE RETRAIT": { 
+              $ne: null, 
+              $ne: "",
+              $exists: true 
+            }
           }
         },
         {
@@ -124,10 +174,12 @@ router.get("/detail", async (req, res) => {
             retires: {
               $sum: {
                 $cond: [
-                  { $and: [
-                    { $ne: ["$DELIVRANCE", ""] },
-                    { $ne: ["$DELIVRANCE", null] }
-                  ]},
+                  { 
+                    $and: [
+                      { $ne: ["$DELIVRANCE", null] },
+                      { $ne: ["$DELIVRANCE", ""] }
+                    ]
+                  },
                   1,
                   0
                 ]
@@ -147,42 +199,48 @@ router.get("/detail", async (req, res) => {
       ]).toArray()
     ]);
 
+    const globales = globalesResult[0] || { total: 0, retires: 0 };
+
     const response = {
+      success: true,
       globales: {
-        total: globalesResult.total,
-        retires: globalesResult.retires,
-        restants: globalesResult.total - globalesResult.retires
+        total: globales.total,
+        retires: globales.retires,
+        restants: globales.total - globales.retires,
+        tauxRetrait: globales.total > 0 ? Math.round((globales.retires / globales.total) * 100) : 0
       },
-      sites: sitesResult
+      sites: sitesResult,
+      timestamp: new Date().toISOString()
     };
 
     res.json(response);
     
   } catch (error) {
-    console.error("❌ Erreur statistiques détail MongoDB:", error);
+    console.error("❌ Erreur statistiques détail:", error);
     res.status(500).json({ 
+      success: false,
       error: "Erreur lors du calcul des statistiques détaillées",
       details: error.message 
     });
   }
 });
 
-// 🔥 ENDPOINT POUR FORCER LE REFRESH - MONGODB
+// 🔄 FORCER LE REFRESH
 router.post("/refresh", async (req, res) => {
   try {
-    console.log("🔄 Forçage du recalcul des statistiques MongoDB...");
+    console.log("🔄 Refresh des statistiques...");
     
-    // Les stats MongoDB sont toujours en temps réel
     res.json({ 
-      message: "Synchronisation des statistiques MongoDB déclenchée",
-      timestamp: new Date().toISOString(),
-      database: "MongoDB Atlas"
+      success: true,
+      message: "Synchronisation des statistiques déclenchée",
+      timestamp: new Date().toISOString()
     });
     
   } catch (error) {
-    console.error("❌ Erreur refresh statistiques MongoDB:", error);
+    console.error("❌ Erreur refresh:", error);
     res.status(500).json({ 
-      error: "Erreur lors du refresh des statistiques",
+      success: false,
+      error: "Erreur lors du refresh",
       details: error.message 
     });
   }
