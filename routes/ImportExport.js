@@ -172,6 +172,35 @@ class DataCleaner {
     
     return strValue;
   }
+
+  // ✅ NOUVELLE FONCTION : Conversion des dates MongoDB pour Excel
+  static cleanDateForExcel(dateValue) {
+    if (!dateValue) return '';
+    
+    // Si c'est déjà une string
+    if (typeof dateValue === 'string') {
+      return dateValue;
+    }
+    
+    // Si c'est un objet Date MongoDB
+    if (dateValue instanceof Date) {
+      const year = dateValue.getFullYear();
+      const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+      const day = String(dateValue.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    
+    // Si c'est un objet MongoDB Date ({$date: ...})
+    if (dateValue.$date) {
+      const jsDate = new Date(dateValue.$date);
+      const year = jsDate.getFullYear();
+      const month = String(jsDate.getMonth() + 1).padStart(2, '0');
+      const day = String(jsDate.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    
+    return '';
+  }
 }
 
 class ExcelHelper {
@@ -395,12 +424,22 @@ async function importExcel(req, res) {
   }
 }
 
+// ✅ FONCTION EXPORT TOUTES LES CARTES - CORRIGÉE ET AMÉLIORÉE
 async function exportAll(req, res) {
   try {
+    console.log('📊 Export de TOUTES les cartes demandé');
+    
     const db = getDB();
     const cartes = await db.collection('cartes').find({}).sort({ _id: 1 }).toArray();
     
     console.log(`📊 Toutes les cartes à exporter: ${cartes.length} lignes`);
+    
+    if (cartes.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Aucune carte trouvée dans la base de données'
+      });
+    }
     
     // Journaliser l'export
     await logAction({
@@ -412,7 +451,7 @@ async function exportAll(req, res) {
     await exportToExcel(res, cartes, 'toutes-les-cartes');
 
   } catch (error) {
-    console.error('❌ Erreur export:', error);
+    console.error('❌ Erreur export toutes les cartes:', error);
     res.status(500).json({
       success: false,
       error: 'Erreur lors de l\'export: ' + error.message
@@ -422,14 +461,17 @@ async function exportAll(req, res) {
 
 async function exportSearchResults(req, res) {
   try {
-    console.log('🔍 Paramètres reçus:', req.query);
+    console.log('🔍 Paramètres reçus pour export recherche:', req.query);
     
     let query = {};
     const filterMap = {
       nom: 'NOM',
       prenom: 'PRENOMS',
       contact: 'CONTACT',
-      siteRetrait: 'SITE DE RETRAIT'
+      siteRetrait: 'SITE DE RETRAIT',
+      lieuNaissance: 'LIEU NAISSANCE',
+      dateNaissance: 'DATE DE NAISSANCE',
+      rangement: 'RANGEMENT'
     };
 
     Object.entries(filterMap).forEach(([key, field]) => {
@@ -438,10 +480,19 @@ async function exportSearchResults(req, res) {
       }
     });
 
+    console.log('🔍 Query MongoDB:', JSON.stringify(query));
+
     const db = getDB();
     const cartes = await db.collection('cartes').find(query).sort({ _id: 1 }).toArray();
 
     console.log(`📊 Résultats à exporter: ${cartes.length} lignes`);
+
+    if (cartes.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Aucun résultat trouvé pour les critères de recherche'
+      });
+    }
 
     await logAction({
       utilisateurId: req.user.id,
@@ -467,17 +518,17 @@ async function downloadTemplate(req, res) {
 
     // Données d'exemple
     const exampleData = {
-      "LIEU D'ENROLEMENT": "Abidjan Plateau",
-      "SITE DE RETRAIT": "Yopougon",
-      "RANGEMENT": "A1-001",
+      "LIEU D'ENROLEMENT": "UNIVERSITE FELIX HOUPHOUET BOIGNY",
+      "SITE DE RETRAIT": "VICE PRESIDENCE DE L'UFHB",
+      "RANGEMENT": "COC-UFHB106",
       "NOM": "KOUAME",
       "PRENOMS": "Jean",
       "DATE DE NAISSANCE": "1990-05-15",
       "LIEU NAISSANCE": "Abidjan",
-      "CONTACT": "01234567",
-      "DELIVRANCE": "OUI",
-      "CONTACT DE RETRAIT": "07654321",
-      "DATE DE DELIVRANCE": "2024-11-20"
+      "CONTACT": "0769489580",
+      "DELIVRANCE": "",
+      "CONTACT DE RETRAIT": "",
+      "DATE DE DELIVRANCE": ""
     };
 
     worksheet.addRow(exampleData);
@@ -549,7 +600,8 @@ async function processImport(worksheet, headers, result, req, importBatchID, ses
       const carteDocument = {
         ...cleanedData,
         importBatchID: importBatchID,
-        created_at: new Date()
+        created_at: new Date(),
+        updated_at: new Date()
       };
 
       const resultInsert = await db.collection('cartes').insertOne(carteDocument, { session });
@@ -569,28 +621,45 @@ async function processImport(worksheet, headers, result, req, importBatchID, ses
   }
 }
 
+// ✅ FONCTION EXPORT EXCEL AMÉLIORÉE AVEC GESTION DES DATES MONGODB
 async function exportToExcel(res, data, filename) {
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = ExcelHelper.setupWorksheet(workbook, 'Données Cartes');
+  try {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = ExcelHelper.setupWorksheet(workbook, 'Données Cartes');
 
-  data.forEach(item => {
-    const rowData = {};
-    CONFIG.columns.forEach(column => {
-      let value = item[column.key] || '';
-      if ((column.key === 'CONTACT' || column.key === 'CONTACT DE RETRAIT') && value) {
-        value = DataCleaner.formatPhone(value);
-      }
-      rowData[column.key.replace(/\s+/g, '_')] = value;
+    data.forEach(item => {
+      const rowData = {};
+      CONFIG.columns.forEach(column => {
+        let value = item[column.key] || '';
+        
+        // ✅ GESTION SPÉCIALE DES DATES MONGODB
+        if ((column.key === 'DATE DE NAISSANCE' || column.key === 'DATE DE DELIVRANCE') && value) {
+          value = DataCleaner.cleanDateForExcel(value);
+        }
+        
+        // ✅ GESTION DES CONTACTS
+        if ((column.key === 'CONTACT' || column.key === 'CONTACT DE RETRAIT') && value) {
+          value = DataCleaner.formatPhone(value);
+        }
+        
+        rowData[column.key.replace(/\s+/g, '_')] = value;
+      });
+      worksheet.addRow(rowData);
     });
-    worksheet.addRow(rowData);
-  });
 
-  ExcelHelper.formatContactColumns(worksheet);
+    ExcelHelper.formatContactColumns(worksheet);
 
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename="${FileHelper.generateFilename(filename)}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${FileHelper.generateFilename(filename)}"`);
 
-  await workbook.xlsx.write(res);
+    await workbook.xlsx.write(res);
+    
+    console.log(`✅ Export Excel réussi: ${data.length} lignes exportées`);
+
+  } catch (error) {
+    console.error('❌ Erreur lors de l\'export Excel:', error);
+    throw error;
+  }
 }
 
 function extractRowData(row, headers) {
@@ -626,11 +695,16 @@ function isEmptyRow(rowData) {
   return !rowData || Object.values(rowData).every(value => !value || value === '');
 }
 
-// 🚀 ROUTES PRINCIPALES
-router.post('/import', upload.single('file'), importExcel);
-router.get('/export', exportAll);
-router.get('/export-resultats', exportSearchResults);
-router.get('/template', downloadTemplate);
+// 🚀 ROUTES PRINCIPALES - CORRIGÉES ET COMPLÈTES
+router.get('/export', exportAll); // ✅ ROUTE MANQUANTE AJOUTÉE - Export toutes les cartes
+router.post('/import', upload.single('file'), importExcel); // ✅ Import Excel
+router.get('/export-resultats', exportSearchResults); // ✅ Export résultats recherche
+router.get('/template', downloadTemplate); // ✅ Template d'import
+
+// Routes supplémentaires pour compatibilité
+router.get('/export-all', exportAll); // ✅ Alias pour l'export complet
+router.get('/export-search', exportSearchResults); // ✅ Alias pour l'export recherche
+
 router.get('/export-pdf', (req, res) => {
   res.status(501).json({
     success: false,
