@@ -426,32 +426,33 @@ async function startServer() {
         });
 
         // ============================================================================
-        // GRACEFUL SHUTDOWN
+        // GRACEFUL SHUTDOWN - VERSION CORRIGÉE
         // ============================================================================
 
         const gracefulShutdown = async (signal) => {
             console.log(`\n🛑 Signal ${signal} reçu. Arrêt en cours...`);
             
-            server.close(async (err) => {
-                if (err) {
-                    console.error('❌ Erreur fermeture serveur:', err);
-                    process.exit(1);
+            try {
+                // Fermer le serveur HTTP
+                if (server && typeof server.close === 'function') {
+                    await new Promise((resolve) => {
+                        server.close(() => {
+                            console.log('🔌 Serveur HTTP fermé');
+                            resolve();
+                        });
+                    });
                 }
                 
-                console.log('🔌 Serveur HTTP fermé');
-                
-                // Fermer la connexion MongoDB
+                // Fermer MongoDB avec sécurité
                 const { closeDB } = require('./db/mongodb.js');
                 await closeDB();
                 
                 console.log('👋 Arrêt complet réussi');
                 process.exit(0);
-            });
-
-            setTimeout(() => {
-                console.log('💥 Arrêt forcé après timeout');
+            } catch (error) {
+                console.error('❌ Erreur lors de l\'arrêt:', error);
                 process.exit(1);
-            }, 10000);
+            }
         };
 
         process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

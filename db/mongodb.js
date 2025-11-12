@@ -176,18 +176,19 @@ function getDB() {
 }
 
 /**
- * Ferme la connexion à MongoDB
+ * Ferme la connexion à MongoDB - VERSION CORRIGÉE
  */
 async function closeDB() {
     try {
-        if (client && isConnected) {
+        if (client && typeof client.close === 'function' && isConnected) {
             await client.close();
             console.log('🔌 Connexion MongoDB fermée proprement');
-            db = null;
-            isConnected = false;
         }
+        db = null;
+        isConnected = false;
     } catch (error) {
-        console.error('❌ Erreur fermeture MongoDB:', error.message);
+        console.warn('⚠️ Avertissement fermeture MongoDB:', error.message);
+        // Ne pas throw pour éviter les crashs
     }
 }
 
@@ -218,7 +219,7 @@ const mongoDB = {
 };
 
 // ============================================================================
-// GESTIONNAIRES D'ÉVÉNEMENTS POUR UN ARRÊT PROPRE
+// GESTIONNAIRES D'ÉVÉNEMENTS POUR UN ARRÊT PROPRE - VERSION CORRIGÉE
 // ============================================================================
 
 process.on('SIGINT', async () => {
